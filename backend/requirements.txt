@@ -1,0 +1,8 @@
+Flask
+Flask-Cors
+pandas
+requests
+netCDF4
+xarray
+matplotlib
+matplotlib
