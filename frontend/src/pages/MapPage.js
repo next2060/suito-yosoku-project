@@ -10,8 +10,8 @@ import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, getDoc, setDoc, collection, getDocs, writeBatch, deleteDoc } from 'firebase/firestore';
 
 // --- 定数定義 ---
-const QGIS_SERVER_URL = 'http://54.252.200.4:8089/';
-const PREDICTION_API_URL = 'http://localhost:5001/predict';
+const QGIS_SERVER_URL = process.env.REACT_APP_QGIS_SERVER_URL;
+const PREDICTION_API_URL = process.env.REACT_APP_PREDICTION_API_URL;
 
 const MUNICIPALITY_LAYERS = [
     { value: '2025_082015', label: '水戸市' }, { value: '2025_082023', label: '日立市' },
@@ -39,12 +39,12 @@ const MUNICIPALITY_LAYERS = [
 ];
 
 const firebaseConfig = {
-  apiKey: "AIzaSyAoq8ukrVrZyLqmOcz9IRG6OvzPuba7nck",
-  authDomain: "suito-yosoku-app.firebaseapp.com",
-  projectId: "suito-yosoku-app",
-  storageBucket: "suito-yosoku-app.firebasestorage.app",
-  messagingSenderId: "338317944534",
-  appId: "1:338317944534:web:32894523961a29398b0b77"
+  apiKey: process.env.REACT_APP_API_KEY,
+  authDomain: process.env.REACT_APP_AUTH_DOMAIN,
+  projectId: process.env.REACT_APP_PROJECT_ID,
+  storageBucket: process.env.REACT_APP_STORAGE_BUCKET,
+  messagingSenderId: process.env.REACT_APP_MESSAGING_SENDER_ID,
+  appId: process.env.REACT_APP_APP_ID
 };
 
 const app = initializeApp(firebaseConfig);

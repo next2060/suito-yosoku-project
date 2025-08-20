@@ -11,7 +11,8 @@
 ### バックエンドサーバー (Python/Flask)
 ```powershell
 # Pythonの仮想環境を使ってAPIサーバーを起動します (ポート5001)
-C:\Users\kinni\suito-yosoku-project\backend\venv\Scripts\python.exe C:\Users\kinni\suito-yosoku-project\backend\app.py
+cd C:\Users\kinni\suito-yosoku-project\backend
+cd C:\Users\kinni\suito-yosoku-project\backend; .\venv\Scripts\python.exe app.py
 ```
 
 ### フロントエンドサーバー (React)
