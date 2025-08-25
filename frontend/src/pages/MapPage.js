@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import '@fortawesome/fontawesome-free/css/all.min.css';
@@ -74,10 +74,10 @@ const convertToCSV = (data) => {
 const MapPage = () => {
   const { currentUser, logout } = useAuth();
   const mapRef = useRef(null);
+  const wfsLayerRef = useRef(null);
   const resizingRef = useRef({ active: false, target: null, startX: 0, startWidth: 0 });
 
   const [map, setMap] = useState(null);
-  const [wfsLayer, setWfsLayer] = useState(null);
   const [selectedLayer, setSelectedLayer] = useState(MUNICIPALITY_LAYERS[0].value);
   const [selectedFields, setSelectedFields] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -95,20 +95,11 @@ const MapPage = () => {
   const [leftPanelWidth, setLeftPanelWidth] = useState(300);
   const [rightPanelWidth, setRightPanelWidth] = useState(350);
 
-  // --- Resize Handlers ---
-  const startResizing = (e, target) => {
-    e.preventDefault();
-    resizingRef.current = {
-      active: true,
-      target,
-      startX: e.clientX,
-      startWidth: target === 'left' ? leftPanelWidth : rightPanelWidth
-    };
-    window.addEventListener('mousemove', resize);
-    window.addEventListener('mouseup', stopResizing);
-  };
+  const getFinalColor = useCallback((variety) => {
+    return customColorMap.get(variety) || getAutoColorForString(variety);
+  }, [customColorMap]);
 
-  const resize = (e) => {
+  const resize = useCallback((e) => {
     if (!resizingRef.current.active) return;
     const { target, startX, startWidth } = resizingRef.current;
     const deltaX = e.clientX - startX;
@@ -119,30 +110,36 @@ const MapPage = () => {
       const newWidth = startWidth - deltaX;
       setRightPanelWidth(Math.max(250, Math.min(newWidth, 800)));
     }
-  };
+  }, []);
 
-  const stopResizing = () => {
+  const stopResizing = useCallback(() => {
     resizingRef.current.active = false;
     window.removeEventListener('mousemove', resize);
     window.removeEventListener('mouseup', stopResizing);
     if (map) {
       setTimeout(() => map.invalidateSize(), 100);
     }
-  };
+  }, [map, resize]);
+
+  const startResizing = useCallback((e, target) => {
+    e.preventDefault();
+    resizingRef.current = {
+      active: true,
+      target,
+      startX: e.clientX,
+      startWidth: target === 'left' ? leftPanelWidth : rightPanelWidth
+    };
+    window.addEventListener('mousemove', resize);
+    window.addEventListener('mouseup', stopResizing);
+  }, [leftPanelWidth, rightPanelWidth, resize, stopResizing]);
 
   useEffect(() => {
     return () => {
       window.removeEventListener('mousemove', resize);
       window.removeEventListener('mouseup', stopResizing);
     };
-  }, []);
+  }, [resize, stopResizing]);
 
-
-  const getFinalColor = (variety) => {
-    return customColorMap.get(variety) || getAutoColorForString(variety);
-  };
-
-  // --- Map Initialization ---
   useEffect(() => {
     if (mapRef.current && !map) {
       const leafletMap = L.map(mapRef.current).setView([36.34, 140.45], 9);
@@ -150,17 +147,14 @@ const MapPage = () => {
     }
   }, [map]);
 
-  // --- User and Variety Data Loading ---
   useEffect(() => {
     if (!currentUser) return;
     const fetchInitialData = async () => {
-      // Fetch custom colors
       const colorSnapshot = await getDocs(collection(db, "users", currentUser.uid, "variety_colors"));
       const newCustomColorMap = new Map();
       colorSnapshot.forEach(doc => newCustomColorMap.set(doc.id, doc.data().color));
       setCustomColorMap(newCustomColorMap);
 
-      // Fetch weather API credentials
       const weatherCredsRef = doc(db, "users", currentUser.uid, "private_data", "weather_api");
       const weatherCredsSnap = await getDoc(weatherCredsRef);
       if (weatherCredsSnap.exists()) {
@@ -169,7 +163,6 @@ const MapPage = () => {
         setWeatherPassword(data.password || '');
       }
 
-      // Fetch available varieties for dropdown
       const baseVarieties = ['あきたこまち', 'コシヒカリ', 'にじのきらめき'];
       const customVarietiesSnapshot = await getDocs(collection(db, "varieties"));
       const customVarieties = customVarietiesSnapshot.docs.map(doc => doc.data().name);
@@ -178,13 +171,14 @@ const MapPage = () => {
     fetchInitialData();
   }, [currentUser]);
 
-  // --- Layer Data Fetching ---
   useEffect(() => {
     if (!map || !selectedLayer || !currentUser) return;
     const fetchLayerData = async () => {
       setIsLoading(true);
       setSelectedFields([]);
-      if (wfsLayer) map.removeLayer(wfsLayer);
+      if (wfsLayerRef.current) {
+        map.removeLayer(wfsLayerRef.current);
+      }
       try {
         const savedDataSnapshot = await getDocs(collection(db, "users", currentUser.uid, "paddy_fields"));
         const newVarietyMap = new Map();
@@ -207,19 +201,22 @@ const MapPage = () => {
             if (fieldId) layer.on('click', () => setSelectedFields(prev => prev.includes(fieldId) ? prev.filter(id => id !== fieldId) : [...prev, fieldId]));
           }
         }).addTo(map);
-        setWfsLayer(geoJsonLayer);
+        wfsLayerRef.current = geoJsonLayer;
         if (wfsData.features.length > 0) map.fitBounds(geoJsonLayer.getBounds());
         else alert("この市町村には表示できる圃場データがありません。");
-      } catch (e) { console.error("レイヤーデータの取得に失敗しました:", e); setError(e.message); }
-      setIsLoading(false);
+      } catch (e) { 
+        console.error("レイヤーデータの取得に失敗しました:", e); 
+        setError(e.message); 
+      } finally {
+        setIsLoading(false);
+      }
     };
     fetchLayerData();
-  }, [map, selectedLayer, currentUser]);
+  }, [map, selectedLayer, currentUser, getFinalColor]);
 
-  // --- Layer Styling Logic ---
   useEffect(() => {
-    if (!wfsLayer) return;
-    wfsLayer.eachLayer(layer => {
+    if (!wfsLayerRef.current) return;
+    wfsLayerRef.current.eachLayer(layer => {
       if (layer.feature && layer.feature.properties.polygon_uuid) {
         const fieldId = layer.feature.properties.polygon_uuid;
         const isSelected = selectedFields.includes(fieldId);
@@ -233,9 +230,8 @@ const MapPage = () => {
         });
       }
     });
-  }, [selectedFields, varietyMap, customColorMap, wfsLayer]);
+  }, [selectedFields, varietyMap, customColorMap, getFinalColor]);
 
-  // --- Single Field Data Fetching ---
   useEffect(() => {
     if (!currentUser || selectedFields.length !== 1) {
       setFieldInfo({ id: '', name: '', transplantDate: '', variety: '', lat: null, lon: null });
@@ -244,8 +240,8 @@ const MapPage = () => {
     }
     const selectedId = selectedFields[0];
     let lat = null, lon = null;
-    if (wfsLayer) {
-      wfsLayer.eachLayer(layer => {
+    if (wfsLayerRef.current) {
+      wfsLayerRef.current.eachLayer(layer => {
         if (layer.feature.properties.polygon_uuid === selectedId) {
           lat = layer.feature.properties.point_lat;
           lon = layer.feature.properties.point_lng;
@@ -263,7 +259,7 @@ const MapPage = () => {
       }
     };
     fetchFieldData();
-  }, [selectedFields, wfsLayer, currentUser]);
+  }, [selectedFields, currentUser]);
 
   // --- UI Handlers ---
   const handleInputChange = e => setFieldInfo(prev => ({ ...prev, [e.target.name]: e.target.value }));
@@ -351,10 +347,10 @@ const MapPage = () => {
   };
   const handleGeoJsonExport = async () => {
     if (selectedFields.length === 0 || !currentUser) { alert("エクスポートする圃場が選択されていないか、ユーザーが不明です。"); return; }
-    if (!wfsLayer) { alert("地図データがまだ読み込まれていません。"); return; }
+    if (!wfsLayerRef.current) { alert("地図データがまだ読み込まれていません。"); return; }
     try {
       setIsLoading(true);
-      const allFeatures = wfsLayer.toGeoJSON().features;
+      const allFeatures = wfsLayerRef.current.toGeoJSON().features;
       const selectedFeatures = allFeatures.filter(feature => selectedFields.includes(feature.properties.polygon_uuid));
       const enrichedFeatures = [];
       for (const feature of selectedFeatures) {
@@ -392,12 +388,12 @@ const MapPage = () => {
   };
   const handleCsvExport = async () => {
     if (selectedFields.length === 0 || !currentUser) { alert("エクスポートする圃場が選択されていません。"); return; }
-    if (!wfsLayer) { alert("地図データがまだ読み込まれていません。"); return; }
+    if (!wfsLayerRef.current) { alert("地図データがまだ読み込まれていません。"); return; }
     setIsExporting(true);
     setError(null);
     try {
       const exportData = [];
-      const allFeatures = wfsLayer.toGeoJSON().features;
+      const allFeatures = wfsLayerRef.current.toGeoJSON().features;
       const featureMap = new Map(allFeatures.map(f => [f.properties.polygon_uuid, f]));
       for (const fieldId of selectedFields) {
         const feature = featureMap.get(fieldId);
